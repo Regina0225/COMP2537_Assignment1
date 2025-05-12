@@ -1,0 +1,21 @@
+<%- include('templates/header') %>
+
+<h1 class="mb-4">Hello, <%= session.username %></h1>
+
+<div class="row row-cols-1 row-cols-md-3 g-4">
+  <div class="col">
+    <img src="/image/cat.jpg" class="img-fluid rounded shadow-sm" alt="Cat">
+  </div>
+  <div class="col">
+    <img src="/image/fluffy.gif" class="img-fluid rounded shadow-sm" alt="Fluffy">
+  </div>
+  <div class="col">
+    <img src="/image/socks.gif" class="img-fluid rounded shadow-sm" alt="Socks">
+  </div>
+</div>
+
+<div class="mt-4">
+  <a href="/logout" class="btn btn-danger">Logout</a>
+</div>
+
+<%- include('templates/footer') %>

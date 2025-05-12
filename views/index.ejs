@@ -1,0 +1,18 @@
+<%- include('templates/header') %>
+
+<h1 class="mb-4">Assignment 2 - Regina Park</h1>
+
+<% if (!session.name) { %>
+    <ul class="list-group">
+        <li class="list-group-item"><a href="/login">Login</a></li>
+        <li class="list-group-item"><a href="/signup">Signup</a></li>
+    </ul>
+<% } else { %>
+    <p class="lead">Hello, <%= session.name %>!</p>
+    <ul class="list-group">
+        <li class="list-group-item"><a href="/members">Members Area</a></li>
+        <li class="list-group-item"><a href="/logout">Logout</a></li>
+    </ul>
+<% } %>
+
+<%- include('templates/footer') %>

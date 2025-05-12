@@ -1,25 +1,29 @@
+// server.js
 const express = require('express');
-const fs = require('fs');
-const dotenv = require('dotenv');
-const bcrypt = require('bcrypt');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const { MongoClient, ServerApiVersion } = require('mongodb');
+const bcrypt = require('bcrypt');
+const dotenv = require('dotenv');
 const Joi = require('joi');
 const path = require('path');
 const app = express();
+
 dotenv.config();
 
-
+// Setup
 const uri = process.env.MONGODB_URI;
 const port = process.env.PORT || 3000;
 
+// Middleware
+app.set('view engine', 'ejs');
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 app.use("/js", express.static("./public/js"));
 app.use("/css", express.static("./public/css"));
 app.use("/image", express.static("./public/image"));
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
 
+// MongoDB
 const client = new MongoClient(uri, {
     serverApi: {
         version: ServerApiVersion.v1,
@@ -29,15 +33,12 @@ const client = new MongoClient(uri, {
 });
 
 let usersCollection;
-let sessionsCollection;
 
 async function connectToDB() {
     try {
         await client.connect();
-        
         const db = client.db("myApp");
         usersCollection = db.collection("users");
-        sessionsCollection = db.collection("sessions");
         console.log("Connected to MongoDB");
     } catch (err) {
         console.error("MongoDB connection failed", err);
@@ -56,127 +57,108 @@ app.use(session({
             secret: process.env.MONGODB_SESSION_SECRET
         }
     }),
-    //session exipre after 1 hour
     cookie: { maxAge: 1000 * 60 * 60 } // 1 hour
 }));
 
+// Middleware to expose session to EJS
+app.use((req, res, next) => {
+    res.locals.session = req.session;
+    next();
+});
+
+// Routes
 app.get("/", (req, res) => {
-    if (req.session.username) {
-        res.redirect("/memberspage");
-    } else {
-        const doc = fs.readFileSync("./views/index.html", "utf8");
-        res.setHeader("Content-Type", "text/html");
-        res.send(doc);
-    }
+    res.render("index");
 });
 
-app.get("/loginpage", (req, res) => {
-    if (req.session.username) {
-        res.redirect("/memberspage");
-    } else {
-        const doc = fs.readFileSync("./views/login.html", "utf8");
-        res.setHeader("Content-Type", "text/html");
-        res.send(doc);
-    }
+app.get("/login", (req, res) => {
+    res.render("login");
 });
 
-app.get("/signuppage", (req, res) => {
-    if (req.session.username) {
-        res.redirect("/memberspage");
-    } else {
-        const doc = fs.readFileSync("./views/signup.html", "utf8");
-        res.setHeader("Content-Type", "text/html");
-        res.send(doc);
-    }
+app.get("/signup", (req, res) => {
+    res.render("signup");
 });
 
-app.get("/memberspage", (req, res) => {
-    if (req.session.username) {
-        const doc = fs.readFileSync("./views/members.html", "utf8");
-        res.setHeader("Content-Type", "text/html");
-        res.send(doc);
-    } else {
-        res.redirect("/loginpage");
+app.get("/members", (req, res) => {
+    if (!req.session.username) return res.redirect("/");
+    res.render("members");
+});
+
+app.get("/admin", async (req, res) => {
+    if (!req.session.username) return res.redirect("/login");
+    const currentUser = await usersCollection.findOne({ username: req.session.username });
+    if (!currentUser || currentUser.user_type !== 'admin') {
+        return res.status(403).send("403 - Failed");
     }
+    const users = await usersCollection.find().toArray();
+    res.render("admin", { users });
+});
+
+app.post("/promote", async (req, res) => {
+    await usersCollection.updateOne(
+        { email: req.body.email },
+        { $set: { user_type: "admin" } }
+    );
+    res.redirect("/admin");
+});
+
+app.post("/demote", async (req, res) => {
+    await usersCollection.updateOne(
+        { email: req.body.email },
+        { $set: { user_type: "user" } }
+    );
+    res.redirect("/admin");
 });
 
 app.post("/signup", async (req, res) => {
-    const json = req.body;
-
-    //Using joi to validate for user name
     const schema = Joi.object({
         username: Joi.string().max(30).required(),
         email: Joi.string().email().required(),
         password: Joi.string().min(6).max(20).required()
     });
+    const { error } = schema.validate(req.body);
+    if (error) return res.status(400).send(error.details[0].message);
 
-    const validationResult = schema.validate(json);
-
-    // if i got error maeesage from validation it will allow not
-    if (validationResult.error) {
-        return res.status(400).json({ error: validationResult.error.details[0].message });
-    }
-
-    const hashedPassword = bcrypt.hashSync(json.password, 12);
-    const user = {
-        username: json.username,
-        email: json.email,
-        password: hashedPassword
+    const hashedPassword = bcrypt.hashSync(req.body.password, 12);
+    const newUser = {
+        username: req.body.username,
+        email: req.body.email,
+        password: hashedPassword,
+        user_type: "user"
     };
 
     try {
-        const result = await usersCollection.insertOne(user);
-        req.session.username = user.username;
-        req.session.save(() => {
-            res.json({ redirect: "/memberspage" });
-        });
-
+        await usersCollection.insertOne(newUser);
+        req.session.username = newUser.username;
+        res.redirect("/members");
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "Failed to insert user" });
+        res.status(500).send("Failed to sign up user");
     }
 });
 
 app.post("/login", async (req, res) => {
-    const json = req.body;
-    const user = await usersCollection.findOne({ email: json.email });
-
-    if (user && await bcrypt.compare(json.password, user.password)) {
+    const user = await usersCollection.findOne({ email: req.body.email });
+    if (user && await bcrypt.compare(req.body.password, user.password)) {
         req.session.username = user.username;
-
-        req.session.save(() => {
-            res.redirect("/memberspage");
-        });
-
+        res.redirect("/members");
     } else {
-        res.status(401).json({ error: "Invalid email or password" });
+        res.status(401).send("Invalid email or password");
     }
 });
 
-app.post("/logout", (req, res) => {
-    req.session.destroy((err) => {
-        if (err) {
-            console.error("Error destroying session:", err);
-            res.status(500).send("Error logging out");
-        } else {
-            res.redirect("/");
-
-        }
+app.get("/logout", (req, res) => {
+    req.session.destroy(err => {
+        if (err) return res.status(500).send("Error logging out");
+        res.redirect("/");
     });
 });
 
-app.get("/getUsername", (req, res) => {
-    if (req.session.username) {
-        res.json({ username: req.session.username });
-    } else {
-        res.redirect('/loginpage');
-    }
-});
-
+// 404 page
 app.use((req, res) => {
-    res.status(404).send("Page not found - 404");
+    res.status(404).render("404");
 });
 
+// Server start
 app.listen(port, () => {
-    console.log('Server running at http://localhost:' + port);
+    console.log(`Server running at http://localhost:${port}`);
 });
