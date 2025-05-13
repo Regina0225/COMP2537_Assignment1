@@ -57,7 +57,9 @@ app.use(session({
             secret: process.env.MONGODB_SESSION_SECRET
         }
     }),
-    cookie: { maxAge: 1000 * 60 * 60 } // 1 hour
+    cookie: { maxAge: 1000 * 60 * 60 }, // 1 hour
+    sameSite: 'strict',
+    secure: false
 }));
 
 // Middleware to expose session to EJS
@@ -88,7 +90,7 @@ app.get("/admin", async (req, res) => {
     if (!req.session.username) return res.redirect("/login");
     const currentUser = await usersCollection.findOne({ username: req.session.username });
     if (!currentUser || currentUser.user_type !== 'admin') {
-        return res.status(403).send("403 - Failed");
+        return res.status(403).send("403  - Failed");
     }
     const users = await usersCollection.find().toArray();
     res.render("admin", { users });
